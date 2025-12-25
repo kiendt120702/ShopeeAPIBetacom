@@ -162,7 +162,7 @@ async function getTokenWithAutoRefresh(
   // 1. Tìm token từ bảng shops (nơi frontend lưu token)
   const { data: shopData, error: shopError } = await supabase
     .from('shops')
-    .select('shop_id, access_token, refresh_token, expired_at, merchant_id')
+    .select('shop_id, access_token, refresh_token, expired_at, merchant_id, partner_id, partner_key')
     .eq('shop_id', shopId)
     .single();
 
@@ -172,18 +172,53 @@ async function getTokenWithAutoRefresh(
     hasAccessToken: !!shopData?.access_token 
   });
 
-  let data = shopData;
-
   // Token not found after schema consolidation
   if (shopError || !shopData?.access_token) {
     throw new Error('Token not found. Please authenticate first.');
   }
 
-  // Kiểm tra token có sắp hết hạn không (buffer 5 phút)
+  // Kiểm tra token có hết hạn chưa
   const now = Date.now();
-  const isExpiringSoon = data.expired_at && (data.expired_at - now) < TOKEN_BUFFER_MS;
+  const isExpired = shopData.expired_at && shopData.expired_at < now;
+  const isExpiringSoon = shopData.expired_at && (shopData.expired_at - now) < TOKEN_BUFFER_MS;
 
-  return data;
+  // Nếu token đã hết hạn hoặc sắp hết hạn, thử refresh ngay
+  if (isExpired || isExpiringSoon) {
+    console.log(`[TOKEN] Token expired or expiring soon, attempting refresh...`);
+    
+    if (!shopData.refresh_token) {
+      throw new Error('Refresh token not found. Please re-authenticate the shop.');
+    }
+
+    const credentials: PartnerCredentials = {
+      partnerId: shopData.partner_id || DEFAULT_PARTNER_ID,
+      partnerKey: shopData.partner_key || DEFAULT_PARTNER_KEY,
+    };
+
+    try {
+      const newToken = await refreshAccessToken(credentials, shopData.refresh_token, shopId);
+      
+      if (newToken.error) {
+        console.error('[TOKEN] Refresh failed:', newToken.error, newToken.message);
+        throw new Error(`Token refresh failed: ${newToken.message || newToken.error}. Please re-authenticate the shop.`);
+      }
+
+      // Lưu token mới
+      await saveToken(supabase, shopId, newToken);
+      console.log('[TOKEN] Token refreshed successfully');
+
+      return {
+        ...shopData,
+        access_token: newToken.access_token,
+        refresh_token: newToken.refresh_token,
+      };
+    } catch (refreshError) {
+      console.error('[TOKEN] Refresh error:', refreshError);
+      throw new Error(`Cannot refresh token: ${(refreshError as Error).message}. Please re-authenticate the shop.`);
+    }
+  }
+
+  return shopData;
 }
 
 /**
