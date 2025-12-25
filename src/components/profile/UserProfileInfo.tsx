@@ -8,6 +8,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ShopConnectionDialog } from './ShopConnectionDialog';
 import { useToast } from '@/hooks/use-toast';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface Shop {
   shop_id: number;
@@ -45,6 +53,11 @@ export function UserProfileInfo() {
 
   // State cho reconnect shop
   const [reconnectingShopId, setReconnectingShopId] = useState<number | null>(null);
+
+  // State cho xóa shop
+  const [deletingShopId, setDeletingShopId] = useState<number | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [shopToDelete, setShopToDelete] = useState<Shop | null>(null);
 
   const isAdmin = profile?.role_name === 'admin';
   const isSuperAdmin = profile?.role_name === 'super_admin';
@@ -293,6 +306,85 @@ export function UserProfileInfo() {
     }
   };
 
+  // Hàm xóa shop
+  const handleDeleteShop = async () => {
+    if (!shopToDelete || !user?.id) return;
+    
+    setDeletingShopId(shopToDelete.shop_id);
+    try {
+      // 1. Xóa shop_members của user này với shop này
+      const { error: memberError } = await supabase
+        .from('shop_members')
+        .delete()
+        .eq('shop_id', shopToDelete.shop_id)
+        .eq('user_id', user.id);
+
+      if (memberError) throw memberError;
+
+      // 2. Kiểm tra xem còn ai có quyền truy cập shop này không
+      const { data: remainingMembers, error: checkError } = await supabase
+        .from('shop_members')
+        .select('user_id')
+        .eq('shop_id', shopToDelete.shop_id);
+
+      if (checkError) throw checkError;
+
+      // 3. Nếu không còn ai, xóa luôn shop và dữ liệu liên quan
+      if (!remainingMembers || remainingMembers.length === 0) {
+        // Xóa flash_sale_data
+        await supabase
+          .from('flash_sale_data')
+          .delete()
+          .eq('shop_id', shopToDelete.shop_id);
+
+        // Xóa ads_campaign_data
+        await supabase
+          .from('ads_campaign_data')
+          .delete()
+          .eq('shop_id', shopToDelete.shop_id);
+
+        // Xóa sync_status
+        await supabase
+          .from('sync_status')
+          .delete()
+          .eq('shop_id', shopToDelete.shop_id);
+
+        // Xóa shop
+        const { error: shopError } = await supabase
+          .from('shops')
+          .delete()
+          .eq('shop_id', shopToDelete.shop_id);
+
+        if (shopError) throw shopError;
+      }
+
+      toast({
+        title: 'Thành công',
+        description: `Đã xóa shop "${shopToDelete.shop_name || shopToDelete.shop_id}"`,
+      });
+
+      // Reload danh sách shop
+      loadUserShops();
+      setShowDeleteConfirm(false);
+      setShopToDelete(null);
+    } catch (error: any) {
+      console.error('Error deleting shop:', error);
+      toast({
+        title: 'Lỗi',
+        description: error.message || 'Không thể xóa shop',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeletingShopId(null);
+    }
+  };
+
+  // Mở dialog xác nhận xóa
+  const openDeleteConfirm = (shop: Shop) => {
+    setShopToDelete(shop);
+    setShowDeleteConfirm(true);
+  };
+
   return (
     <div className="space-y-6">
       {/* Profile Info */}
@@ -460,33 +552,55 @@ export function UserProfileInfo() {
                           })() : '-'}
                         </td>
                         <td className="py-3">
-                          {canManageUsers ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleReconnectShop(shop.shop_id)}
-                              disabled={reconnectingShopId === shop.shop_id}
-                            >
-                              {reconnectingShopId === shop.shop_id ? (
-                                <>
-                                  <svg className="w-4 h-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                  </svg>
-                                  Đang xử lý...
-                                </>
-                              ) : (
-                                <>
-                                  <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                  </svg>
-                                  Kết nối lại
-                                </>
-                              )}
-                            </Button>
-                          ) : (
-                            <span className="text-sm text-gray-400">-</span>
-                          )}
+                          <div className="flex items-center gap-2">
+                            {canManageUsers ? (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleReconnectShop(shop.shop_id)}
+                                  disabled={reconnectingShopId === shop.shop_id}
+                                >
+                                  {reconnectingShopId === shop.shop_id ? (
+                                    <>
+                                      <svg className="w-4 h-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                      </svg>
+                                      Đang xử lý...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                      </svg>
+                                      Kết nối lại
+                                    </>
+                                  )}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                                  onClick={() => openDeleteConfirm(shop)}
+                                  disabled={deletingShopId === shop.shop_id}
+                                >
+                                  {deletingShopId === shop.shop_id ? (
+                                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                  ) : (
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                  )}
+                                </Button>
+                              </>
+                            ) : (
+                              <span className="text-sm text-gray-400">-</span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -530,6 +644,68 @@ export function UserProfileInfo() {
           )}
         </CardContent>
       </Card>
+
+      {/* Dialog xác nhận xóa shop */}
+      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Xóa Shop</DialogTitle>
+            <DialogDescription>
+              Bạn có chắc chắn muốn xóa shop <strong>"{shopToDelete?.shop_name || shopToDelete?.shop_id}"</strong>?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <svg className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <div className="text-sm text-red-700">
+                  <p className="font-medium mb-1">Lưu ý:</p>
+                  <ul className="list-disc list-inside space-y-1">
+                    <li>Bạn sẽ mất quyền truy cập vào shop này</li>
+                    <li>Nếu không còn ai có quyền truy cập, tất cả dữ liệu của shop sẽ bị xóa</li>
+                    <li>Hành động này không thể hoàn tác</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowDeleteConfirm(false);
+                setShopToDelete(null);
+              }}
+            >
+              Hủy
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteShop}
+              disabled={deletingShopId !== null}
+            >
+              {deletingShopId !== null ? (
+                <>
+                  <svg className="w-4 h-4 mr-2 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Đang xóa...
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Xóa Shop
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

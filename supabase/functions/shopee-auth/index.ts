@@ -326,9 +326,24 @@ serve(async (req) => {
         const mainAccountId = body.main_account_id ? Number(body.main_account_id) : undefined;
         const partnerInfo = body.partner_info as PartnerInfo | undefined;
 
+        console.log('[AUTH] get-token request:', { code: code.substring(0, 10) + '...', shopId, hasPartnerInfo: !!partnerInfo });
+
         // Lấy partner credentials
         const credentials = await getPartnerCredentials(supabase, partnerInfo, shopId);
+        console.log('[AUTH] Using partner credentials:', { partnerId: credentials.partnerId });
+        
         const token = await getAccessToken(credentials, code, shopId, mainAccountId);
+
+        console.log('[AUTH] Shopee API response:', { 
+          error: token.error,
+          message: token.message,
+          hasAccessToken: !!token.access_token,
+          accessTokenLength: token.access_token?.length,
+          accessTokenPrefix: token.access_token?.substring(0, 30),
+          shopId: token.shop_id,
+          expireIn: token.expire_in,
+          expireTime: token.expire_time
+        });
 
         if (token.error) {
           return new Response(JSON.stringify({ error: token.error, message: token.message, success: false }), {
@@ -345,6 +360,7 @@ serve(async (req) => {
 
         // Save token to database với partner info
         await saveToken(supabase, tokenWithShopId, userId, credentials);
+        console.log('[AUTH] Token saved to database for shop:', tokenWithShopId.shop_id);
 
         return new Response(JSON.stringify(tokenWithShopId), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
