@@ -350,7 +350,7 @@ export default function AdsPanel() {
                           </span>
                         </div>
                         <div className="text-sm text-center whitespace-nowrap">
-                          {s.hour_start.toString().padStart(2, '0')}:00 - {s.hour_end.toString().padStart(2, '0')}:00
+                          {s.hour_start.toString().padStart(2, '0')}:00 - {s.hour_end === 24 ? '23:59' : `${s.hour_end.toString().padStart(2, '0')}:00`}
                         </div>
                         <div className="text-sm text-right font-medium text-orange-600 whitespace-nowrap">
                           {formatPrice(s.budget)}
@@ -401,7 +401,7 @@ export default function AdsPanel() {
             </div>
             <div>
               <p className="text-sm text-gray-600">Khung giờ:</p>
-              <p className="font-medium text-orange-600">{bulkHours.length > 0 ? Math.min(...bulkHours) + ':00 - ' + (Math.max(...bulkHours) + 1) + ':00' : ''}</p>
+              <p className="font-medium text-orange-600">{bulkHours.length > 0 ? `${Math.min(...bulkHours).toString().padStart(2, '0')}:00 - ${(Math.max(...bulkHours) + 1) === 24 ? '23:59' : `${(Math.max(...bulkHours) + 1).toString().padStart(2, '0')}:00`}` : ''}</p>
             </div>
             <div>
               <label className="text-sm font-medium mb-1 block">Ngân sách (VNĐ) - áp dụng cho tất cả</label>
