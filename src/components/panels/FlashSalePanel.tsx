@@ -95,7 +95,7 @@ export interface FlashSalePanelRef {
 
 const FlashSalePanel = forwardRef<FlashSalePanelRef>((_, ref) => {
   const { toast } = useToast();
-  const { token, isAuthenticated, user } = useShopeeAuth();
+  const { token, isAuthenticated, isLoading: authLoading, user } = useShopeeAuth();
   
   // Data state - từ Supabase DB
   const [flashSales, setFlashSales] = useState<FlashSale[]>([]);
@@ -291,6 +291,10 @@ const FlashSalePanel = forwardRef<FlashSalePanelRef>((_, ref) => {
 
     // Load initial data
     loadFlashSalesFromDB();
+    
+    // Pre-fetch time slots in background (sử dụng cache)
+    // Giúp dialog mở nhanh hơn khi user click "Sao chép"
+    fetchTimeSlots(true);
   }, [token?.shop_id]);
 
   // ============================================
@@ -314,16 +318,43 @@ const FlashSalePanel = forwardRef<FlashSalePanelRef>((_, ref) => {
     }
   };
 
-  const fetchTimeSlots = async () => {
+  const fetchTimeSlots = async (useCache = true) => {
     if (!token?.shop_id) return;
     setLoadingTimeSlots(true);
     try {
       const now = Math.floor(Date.now() / 1000) + 60;
+      const cacheKey = `timeslots_${token.shop_id}`;
+      
+      // Check cache first (valid for 5 minutes)
+      if (useCache) {
+        const cached = sessionStorage.getItem(cacheKey);
+        if (cached) {
+          const { data, timestamp } = JSON.parse(cached);
+          if (Date.now() - timestamp < 5 * 60 * 1000) { // 5 phút
+            console.log('[TimeSlots] Using cached data');
+            setTimeSlots(data);
+            setLoadingTimeSlots(false);
+            // Fetch scheduled in background
+            const scheduledRes = await supabase
+              .from('apishopee_scheduled_flash_sales')
+              .select('target_timeslot_id')
+              .eq('shop_id', token.shop_id)
+              .eq('status', 'pending');
+            if (scheduledRes.data) {
+              const scheduledSet = new Set<number>();
+              scheduledRes.data.forEach((s: { target_timeslot_id: number }) => scheduledSet.add(s.target_timeslot_id));
+              setScheduledTimeslots(scheduledSet);
+            }
+            return;
+          }
+        }
+      }
       
       // Fetch timeslots và scheduled flash sales song song
+      // Giảm xuống 14 ngày thay vì 30 ngày để nhanh hơn
       const [timeSlotsRes, scheduledRes] = await Promise.all([
         supabase.functions.invoke('shopee-flash-sale', {
-          body: { action: 'get-time-slots', shop_id: token.shop_id, start_time: now, end_time: now + 30 * 24 * 60 * 60 },
+          body: { action: 'get-time-slots', shop_id: token.shop_id, start_time: now, end_time: now + 14 * 24 * 60 * 60 },
         }),
         supabase
           .from('apishopee_scheduled_flash_sales')
@@ -333,7 +364,15 @@ const FlashSalePanel = forwardRef<FlashSalePanelRef>((_, ref) => {
       ]);
       
       if (timeSlotsRes.error) throw timeSlotsRes.error;
-      setTimeSlots(timeSlotsRes.data?.response || []);
+      
+      // Shopee API trả về response.time_slot_list
+      const timeSlotList = timeSlotsRes.data?.response?.time_slot_list || timeSlotsRes.data?.response || [];
+      const validList = Array.isArray(timeSlotList) ? timeSlotList : [];
+      
+      // Cache the result
+      sessionStorage.setItem(cacheKey, JSON.stringify({ data: validList, timestamp: Date.now() }));
+      
+      setTimeSlots(validList);
       
       // Tạo Set các timeslot đã có lịch hẹn pending
       const scheduledSet = new Set<number>();
@@ -389,7 +428,7 @@ const FlashSalePanel = forwardRef<FlashSalePanelRef>((_, ref) => {
     if (itemsInfo.length === 0) await fetchItems(selectedSale.flash_sale_id);
     setSelectedTimeSlots([]);
     setShowCopyDialog(true);
-    fetchTimeSlots();
+    fetchTimeSlots(true); // Use cache for faster load
   };
 
   const handleCopyFlashSale = async () => {
@@ -561,7 +600,9 @@ const FlashSalePanel = forwardRef<FlashSalePanelRef>((_, ref) => {
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
-        {!isAuthenticated ? (
+        {authLoading ? (
+          <LoadingState text="Đang kiểm tra đăng nhập..." color="orange" />
+        ) : !isAuthenticated ? (
           <div className="h-full flex items-center justify-center">
             <p className="text-gray-500">Vui lòng kết nối Shopee để tiếp tục</p>
           </div>
@@ -614,7 +655,7 @@ const FlashSalePanel = forwardRef<FlashSalePanelRef>((_, ref) => {
                           setShowCopyDialog(true); 
                           // Load data in background
                           fetchItems(sale.flash_sale_id); 
-                          fetchTimeSlots(); 
+                          fetchTimeSlots(true); // Use cache for faster load
                         }}
                         className="text-blue-500 hover:text-blue-600 text-sm"
                       >

@@ -309,10 +309,13 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { action, shop_id, ...params } = body;
+    const { action, shop_id: rawShopId, ...params } = body;
 
-    if (!shop_id) {
-      return new Response(JSON.stringify({ error: 'shop_id is required' }), {
+    // Ensure shop_id is a number
+    const shop_id = typeof rawShopId === 'string' ? parseInt(rawShopId, 10) : rawShopId;
+
+    if (!shop_id || isNaN(shop_id)) {
+      return new Response(JSON.stringify({ error: 'shop_id is required and must be a valid number' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });

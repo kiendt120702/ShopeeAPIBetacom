@@ -1,9 +1,10 @@
 /**
  * Supabase Edge Function: Shopee Cron
  * Scheduled job để tự động:
- * 1. Đồng bộ dữ liệu định kỳ
- * 2. Xử lý lịch hẹn Flash Sale
- * 3. Điều chỉnh ngân sách Ads theo lịch
+ * 1. Refresh token cho các shop sắp hết hạn
+ * 2. Đồng bộ dữ liệu định kỳ
+ * 3. Xử lý lịch hẹn Flash Sale
+ * 4. Điều chỉnh ngân sách Ads theo lịch
  */
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
@@ -16,6 +17,75 @@ serve(async (req) => {
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
     const allResults: Record<string, unknown> = {};
+
+    // ========== 0. AUTO-REFRESH TOKEN CHO CÁC SHOP SẮP HẾT HẠN ==========
+    console.log('[CRON] Checking tokens to refresh...');
+    try {
+      const now = Date.now();
+      const bufferMs = 30 * 60 * 1000; // Refresh 30 phút trước khi hết hạn
+      const thresholdTime = now + bufferMs;
+
+      // Lấy các shop có token sắp hết hạn hoặc đã hết hạn (trong vòng 24h qua)
+      const expiredThreshold = now - 24 * 60 * 60 * 1000; // Không refresh token hết hạn quá 24h
+      
+      const { data: shopsToRefresh, error: fetchError } = await supabase
+        .from('apishopee_shops')
+        .select('shop_id, refresh_token, expired_at, partner_id, partner_key')
+        .not('refresh_token', 'is', null)
+        .not('partner_key', 'is', null)
+        .lt('expired_at', thresholdTime)
+        .gt('expired_at', expiredThreshold);
+
+      if (fetchError) {
+        console.error('[CRON] Error fetching shops to refresh:', fetchError);
+        allResults.token_refresh = { status: 'error', error: fetchError.message };
+      } else {
+        console.log(`[CRON] Found ${shopsToRefresh?.length || 0} shops need token refresh`);
+        
+        const refreshResults = [];
+        for (const shop of shopsToRefresh || []) {
+          try {
+            console.log(`[CRON] Refreshing token for shop ${shop.shop_id}...`);
+            
+            const { data: refreshData, error: refreshError } = await supabase.functions.invoke('shopee-auth', {
+              body: {
+                action: 'refresh-token',
+                refresh_token: shop.refresh_token,
+                shop_id: shop.shop_id,
+                partner_info: {
+                  partner_id: shop.partner_id,
+                  partner_key: shop.partner_key,
+                },
+              },
+            });
+
+            if (refreshError || refreshData?.error) {
+              const errMsg = refreshError?.message || refreshData?.message || refreshData?.error;
+              console.error(`[CRON] Failed to refresh token for shop ${shop.shop_id}:`, errMsg);
+              refreshResults.push({ shop_id: shop.shop_id, status: 'failed', error: errMsg });
+            } else {
+              console.log(`[CRON] Token refreshed for shop ${shop.shop_id}`);
+              refreshResults.push({ shop_id: shop.shop_id, status: 'refreshed' });
+            }
+
+            // Delay giữa các request để tránh rate limit
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          } catch (shopErr) {
+            console.error(`[CRON] Exception refreshing shop ${shop.shop_id}:`, shopErr);
+            refreshResults.push({ shop_id: shop.shop_id, status: 'exception', error: (shopErr as Error).message });
+          }
+        }
+
+        allResults.token_refresh = { 
+          status: 'completed', 
+          total: shopsToRefresh?.length || 0,
+          results: refreshResults 
+        };
+      }
+    } catch (tokenErr) {
+      console.error('[CRON] Token refresh exception:', tokenErr);
+      allResults.token_refresh = { status: 'exception', error: (tokenErr as Error).message };
+    }
 
     // ========== 1. XỬ LÝ LỊCH HẸN FLASH SALE ==========
     console.log('[CRON] Processing Flash Sale schedules...');

@@ -153,13 +153,18 @@ export function useShopeeAuth(): UseShopeeAuthReturn {
     let mounted = true;
     let initialLoadDone = false;
 
-    async function initLoad() {
+    async function initLoad(retryCount = 0) {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (mounted) {
           if (session?.user) {
             setUser({ id: session.user.id, email: session.user.email });
             await loadTokenFromSource(session.user.id);
+          } else if (retryCount < 2) {
+            // Retry sau 500ms nếu chưa có session (có thể đang restore)
+            console.log('[AUTH] No session found, retrying...', retryCount + 1);
+            await new Promise(resolve => setTimeout(resolve, 500));
+            return initLoad(retryCount + 1);
           }
         }
       } catch (err) {
@@ -211,6 +216,77 @@ export function useShopeeAuth(): UseShopeeAuthReturn {
       subscription.unsubscribe();
     };
   }, [loadTokenFromSource]);
+
+  // Auto-refresh token trước khi hết hạn (5 phút trước)
+  useEffect(() => {
+    if (!token?.expired_at || !token?.refresh_token) {
+      return;
+    }
+
+    const now = Date.now();
+    const expiredAt = token.expired_at;
+    const bufferMs = 5 * 60 * 1000; // 5 phút trước khi hết hạn
+    const timeUntilRefresh = expiredAt - now - bufferMs;
+
+    // Nếu đã hết hạn hoặc sắp hết hạn, load token mới từ database
+    // (Backend cron đã tự động refresh, chỉ cần sync lại)
+    if (timeUntilRefresh <= 0) {
+      console.log('[AUTH] Token expired or expiring soon, syncing from database...');
+      
+      // Load token mới từ database thay vì gọi refresh API
+      (async () => {
+        try {
+          const { data: shopData } = await supabase
+            .from('apishopee_shops')
+            .select('access_token, refresh_token, expired_at, expire_in, merchant_id')
+            .eq('shop_id', token.shop_id)
+            .single();
+          
+          if (shopData?.access_token && shopData.expired_at > Date.now()) {
+            const newToken: AccessToken = {
+              access_token: shopData.access_token,
+              refresh_token: shopData.refresh_token,
+              expired_at: shopData.expired_at,
+              expire_in: shopData.expire_in || 14400,
+              shop_id: token.shop_id,
+              merchant_id: shopData.merchant_id,
+            };
+            await storeToken(newToken);
+            setToken(newToken);
+            console.log('[AUTH] Token synced from database successfully');
+          } else {
+            console.log('[AUTH] Token in database also expired, user needs to reconnect');
+            setError('Token hết hạn, vui lòng kết nối lại shop');
+          }
+        } catch (err) {
+          console.error('[AUTH] Failed to sync token from database:', err);
+          setError('Không thể đồng bộ token');
+        }
+      })();
+      return;
+    }
+
+    // Set timer để refresh trước khi hết hạn
+    console.log(`[AUTH] Scheduling token refresh in ${Math.round(timeUntilRefresh / 1000 / 60)} minutes`);
+    const timerId = setTimeout(async () => {
+      if (!token?.refresh_token) return;
+      
+      console.log('[AUTH] Auto-refreshing token...');
+      try {
+        const newToken = await refreshToken(token.refresh_token, token.shop_id, token.merchant_id);
+        await storeToken(newToken);
+        setToken(newToken);
+        console.log('[AUTH] Auto-refresh token successful');
+      } catch (err) {
+        console.error('[AUTH] Auto-refresh token failed:', err);
+        setError('Không thể refresh token tự động');
+      }
+    }, timeUntilRefresh);
+
+    return () => {
+      clearTimeout(timerId);
+    };
+  }, [token?.expired_at, token?.refresh_token, token?.shop_id, token?.merchant_id]);
 
   // Redirect to Shopee login
   const login = useCallback(

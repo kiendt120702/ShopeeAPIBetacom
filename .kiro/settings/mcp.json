@@ -16,7 +16,8 @@
         "get_edge_function",
         "deploy_edge_function",
         "list_edge_functions",
-        "list_migrations"
+        "list_migrations",
+        "list_extensions"
       ]
     }
   }

@@ -61,6 +61,11 @@ export default function ScheduledPanel() {
   const [editDate, setEditDate] = useState('');
   const [editTime, setEditTime] = useState('');
   const [saving, setSaving] = useState(false);
+  
+  // Delete dialog state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingSchedule, setDeletingSchedule] = useState<ScheduledItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleString('vi-VN', {
@@ -131,6 +136,31 @@ export default function ScheduledPanel() {
     } catch (err) {
       toast({ title: 'Lỗi', description: (err as Error).message, variant: 'destructive' });
     }
+  };
+
+  const handleDelete = async (id: string) => {
+    setDeleting(true);
+    try {
+      const { error } = await supabase
+        .from('apishopee_scheduled_flash_sales')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      toast({ title: 'Thành công', description: 'Đã xóa lịch hẹn' });
+      setSchedules(prev => prev.filter(s => s.id !== id));
+      setDeleteDialogOpen(false);
+      setDeletingSchedule(null);
+    } catch (err) {
+      toast({ title: 'Lỗi', description: (err as Error).message, variant: 'destructive' });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const openDeleteDialog = (schedule: ScheduledItem) => {
+    setDeletingSchedule(schedule);
+    setDeleteDialogOpen(true);
   };
 
   const handleProcessNow = async () => {
@@ -418,43 +448,46 @@ export default function ScheduledPanel() {
                   header: 'Thao tác',
                   align: 'center',
                   render: (item: ScheduledItem) => (
-                    item.status === 'pending' ? (
-                      <CellActions>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                          onClick={(e) => { e.stopPropagation(); handleEditSchedule(item); }}
-                        >
-                          <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                          </svg>
-                          Sửa
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="text-violet-600 hover:text-violet-700 hover:bg-violet-50"
-                          onClick={(e) => { e.stopPropagation(); handleForceRun(item.id); }}
-                          disabled={processing}
-                        >
-                          <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                          </svg>
-                          Chạy
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-red-500 hover:text-red-600 hover:bg-red-50 px-2"
-                          onClick={(e) => { e.stopPropagation(); handleCancel(item.id); }}
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </Button>
-                      </CellActions>
-                    ) : null
+                    <CellActions>
+                      {item.status === 'pending' && (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            onClick={(e) => { e.stopPropagation(); handleEditSchedule(item); }}
+                          >
+                            <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                            Sửa
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-violet-600 hover:text-violet-700 hover:bg-violet-50"
+                            onClick={(e) => { e.stopPropagation(); handleForceRun(item.id); }}
+                            disabled={processing}
+                          >
+                            <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                            </svg>
+                            Chạy
+                          </Button>
+                        </>
+                      )}
+                      {/* Nút xóa cho tất cả trạng thái (pending, completed, failed) */}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-500 hover:text-red-600 hover:bg-red-50 px-2"
+                        onClick={(e) => { e.stopPropagation(); openDeleteDialog(item); }}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </Button>
+                    </CellActions>
                   ),
                 },
               ]}
@@ -509,6 +542,57 @@ export default function ScheduledPanel() {
               className="bg-violet-500 hover:bg-violet-600"
             >
               {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              Xóa lịch hẹn
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-slate-600 mb-4">Bạn có chắc muốn xóa lịch hẹn này?</p>
+            {deletingSchedule && (
+              <div className="bg-slate-50 rounded-lg p-4 space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Ngày:</span>
+                  <span className="font-medium">{formatSlotDate(deletingSchedule.target_start_time)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Khung giờ:</span>
+                  <span className="font-medium">{formatSlotTime(deletingSchedule.target_start_time, deletingSchedule.target_end_time)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Trạng thái:</span>
+                  <span className={`font-medium ${
+                    deletingSchedule.status === 'completed' ? 'text-green-600' :
+                    deletingSchedule.status === 'failed' ? 'text-red-600' :
+                    'text-amber-600'
+                  }`}>
+                    {STATUS_MAP[deletingSchedule.status]?.icon} {STATUS_MAP[deletingSchedule.status]?.label}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={deleting}>
+              Hủy
+            </Button>
+            <Button 
+              onClick={() => deletingSchedule && handleDelete(deletingSchedule.id)} 
+              disabled={deleting}
+              className="bg-red-500 hover:bg-red-600"
+            >
+              {deleting ? 'Đang xóa...' : 'Xóa lịch hẹn'}
             </Button>
           </DialogFooter>
         </DialogContent>

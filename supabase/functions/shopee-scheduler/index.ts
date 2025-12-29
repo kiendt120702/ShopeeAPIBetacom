@@ -364,7 +364,10 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { action, shop_id, ...params } = body;
+    const { action, shop_id: rawShopId, ...params } = body;
+
+    // Ensure shop_id is a number (if provided)
+    const shop_id = rawShopId ? (typeof rawShopId === 'string' ? parseInt(rawShopId, 10) : rawShopId) : undefined;
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
