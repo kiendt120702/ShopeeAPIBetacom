@@ -133,16 +133,56 @@ async function getTokenWithAutoRefresh(supabase: ReturnType<typeof createClient>
   // 1. Tìm token từ bảng shops
   const { data: shopData, error: shopError } = await supabase
     .from('shops')
-    .select('shop_id, access_token, refresh_token, expired_at')
+    .select('shop_id, access_token, refresh_token, expired_at, partner_id, partner_key')
     .eq('shop_id', shopId)
     .single();
 
-  if (!shopError && shopData?.access_token) {
-    return shopData;
+  if (shopError || !shopData?.access_token) {
+    throw new Error('Token not found. Please authenticate first.');
   }
 
-  // Token not found after schema consolidation
-  throw new Error('Token not found');
+  // 2. Kiểm tra token có hết hạn chưa
+  const now = Date.now();
+  const isExpired = shopData.expired_at && shopData.expired_at < now;
+  const isExpiringSoon = shopData.expired_at && (shopData.expired_at - now) < TOKEN_BUFFER_MS;
+
+  // 3. Nếu token đã hết hạn hoặc sắp hết hạn, thử refresh
+  if (isExpired || isExpiringSoon) {
+    console.log(`[TOKEN] Token expired or expiring soon for shop ${shopId}, attempting refresh...`);
+    
+    if (!shopData.refresh_token) {
+      throw new Error('Refresh token not found. Please re-authenticate the shop.');
+    }
+
+    const credentials: PartnerCredentials = {
+      partnerId: shopData.partner_id || DEFAULT_PARTNER_ID,
+      partnerKey: shopData.partner_key || DEFAULT_PARTNER_KEY,
+    };
+
+    try {
+      const newToken = await refreshAccessToken(credentials, shopData.refresh_token, shopId);
+      
+      if (newToken.error) {
+        console.error('[TOKEN] Refresh failed:', newToken.error, newToken.message);
+        throw new Error(`Token refresh failed: ${newToken.message || newToken.error}. Please re-authenticate the shop.`);
+      }
+
+      // Lưu token mới
+      await saveToken(supabase, shopId, newToken);
+      console.log('[TOKEN] Token refreshed successfully for shop:', shopId);
+
+      return {
+        ...shopData,
+        access_token: newToken.access_token,
+        refresh_token: newToken.refresh_token,
+      };
+    } catch (refreshError) {
+      console.error('[TOKEN] Refresh error:', refreshError);
+      throw new Error(`Cannot refresh token: ${(refreshError as Error).message}. Please re-authenticate the shop.`);
+    }
+  }
+
+  return shopData;
 }
 
 async function callShopeeAPIWithRetry(
@@ -171,6 +211,7 @@ async function callShopeeAPIWithRetry(
       });
     }
     const url = `${SHOPEE_BASE_URL}${path}?${params.toString()}`;
+    console.log('[API] Calling:', path);
     const options: RequestInit = { method, headers: { 'Content-Type': 'application/json' } };
     if (method === 'POST' && body) options.body = JSON.stringify(body);
     const response = await fetchWithProxy(url, options);
@@ -178,11 +219,21 @@ async function callShopeeAPIWithRetry(
   };
 
   let result = await makeRequest(token.access_token);
-  if (result.error === 'error_auth') {
+  
+  // Kiểm tra lỗi token invalid
+  const isTokenError = result.error === 'error_auth' || 
+    result.message?.includes('Invalid access_token') ||
+    result.message?.includes('invalid access_token');
+    
+  if (isTokenError) {
+    console.log('[AUTO-RETRY] Invalid token detected, refreshing...');
     const newToken = await refreshAccessToken(credentials, token.refresh_token, shopId);
     if (!newToken.error) {
       await saveToken(supabase, shopId, newToken);
+      console.log('[AUTO-RETRY] Token refreshed, retrying API call...');
       result = await makeRequest(newToken.access_token);
+    } else {
+      console.error('[AUTO-RETRY] Token refresh failed:', newToken.message);
     }
   }
   return result;
