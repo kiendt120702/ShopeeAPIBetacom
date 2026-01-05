@@ -48,21 +48,22 @@ const menuItems: MenuItem[] = [
     path: '/flash-sale',
     label: 'Flash Sale', 
     icon: <FlameIcon />,
-    description: 'Quản lý Flash Sale & Lịch hẹn giờ',
-    children: [
-      {
-        id: 'flash-sale-list',
-        path: '/flash-sale',
-        label: 'Flash Sale',
-        icon: <FlameIcon />,
-      },
-      {
-        id: 'flash-sale-schedule',
-        path: '/flash-sale/schedule',
-        label: 'Lịch hẹn giờ',
-        icon: <ClockIcon />,
-      },
-    ]
+    description: 'Quản lý Flash Sale',
+    // TODO: Tạm ẩn submenu Lịch hẹn giờ
+    // children: [
+    //   {
+    //     id: 'flash-sale-list',
+    //     path: '/flash-sale',
+    //     label: 'Flash Sale',
+    //     icon: <FlameIcon />,
+    //   },
+    //   {
+    //     id: 'flash-sale-schedule',
+    //     path: '/flash-sale/schedule',
+    //     label: 'Lịch hẹn giờ',
+    //     icon: <ClockIcon />,
+    //   },
+    // ]
   },
   { 
     id: 'ads',
@@ -463,17 +464,6 @@ function DashboardPanel({ onNavigate }: { onNavigate: (path: string) => void }) 
         <StatCard
           icon={
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          }
-          label="Hẹn giờ"
-          value="Tự động"
-          color="blue"
-          onClick={() => onNavigate('/flash-sale')}
-        />
-        <StatCard
-          icon={
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
             </svg>
           }
@@ -485,13 +475,24 @@ function DashboardPanel({ onNavigate }: { onNavigate: (path: string) => void }) 
         <StatCard
           icon={
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
             </svg>
           }
-          label="Ngân sách"
-          value="Scheduler"
+          label="Từ khóa"
+          value="Tra cứu"
+          color="blue"
+          onClick={() => onNavigate('/keywords')}
+        />
+        <StatCard
+          icon={
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+          }
+          label="Đơn hàng"
+          value="Quản lý"
           color="green"
-          onClick={() => onNavigate('/ads')}
+          onClick={() => onNavigate('/orders')}
         />
       </div>
 
@@ -508,7 +509,7 @@ function DashboardPanel({ onNavigate }: { onNavigate: (path: string) => void }) 
               </div>
               <div>
                 <h3 className="font-semibold text-slate-800">Flash Sale Manager</h3>
-                <p className="text-xs text-slate-500">Quản lý & hẹn giờ đăng ký</p>
+                <p className="text-xs text-slate-500">Quản lý đăng ký Flash Sale</p>
               </div>
             </div>
             <button
@@ -528,9 +529,9 @@ function DashboardPanel({ onNavigate }: { onNavigate: (path: string) => void }) 
               description="Danh sách Flash Sale đang mở đăng ký"
             />
             <FeatureItem
-              icon="⏰"
-              title="Hẹn giờ tự động"
-              description="Đặt lịch đăng ký sản phẩm vào Flash Sale"
+              icon="📋"
+              title="Copy sản phẩm"
+              description="Sao chép sản phẩm sang Flash Sale khác"
             />
             <FeatureItem
               icon="📊"
@@ -571,9 +572,9 @@ function DashboardPanel({ onNavigate }: { onNavigate: (path: string) => void }) 
               description="Xem và điều chỉnh chiến dịch quảng cáo"
             />
             <FeatureItem
-              icon="💰"
-              title="Lên lịch ngân sách"
-              description="Tự động thay đổi ngân sách theo lịch"
+              icon="📊"
+              title="Hiệu suất quảng cáo"
+              description="Theo dõi ROAS, CTR và chi phí"
             />
             <FeatureItem
               icon="⚡"
